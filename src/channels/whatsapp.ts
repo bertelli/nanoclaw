@@ -40,6 +40,7 @@ import {
 } from '../db.js';
 import { isImageMessage, processImage } from '../image.js';
 import { logger } from '../logger.js';
+import { isVoiceMessage, transcribeAudioMessage } from '../transcription.js';
 import pino from 'pino';
 
 // Baileys requires a pino-compatible logger instance
@@ -344,8 +345,33 @@ export class WhatsAppChannel implements Channel {
             }
 
 
+            // Voice message transcription (runs before the empty-content skip
+            // so voice notes with no text caption still get processed).
+            let finalContent = content;
+            if (isVoiceMessage(msg)) {
+              try {
+                const transcript = await transcribeAudioMessage(
+                  msg,
+                  this.sock!,
+                );
+                if (transcript) {
+                  finalContent = `[Voice: ${transcript}]`;
+                  logger.info(
+                    { chatJid, length: transcript.length },
+                    'Transcribed voice message',
+                  );
+                } else {
+                  finalContent =
+                    '[Voice Message - transcription unavailable]';
+                }
+              } catch (err) {
+                logger.error({ err }, 'Voice transcription error');
+                finalContent = '[Voice Message - transcription failed]';
+              }
+            }
+
             // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
-            if (!content) continue;
+            if (!finalContent) continue;
 
             const sender = msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
@@ -357,14 +383,14 @@ export class WhatsAppChannel implements Channel {
             // (even in DMs/self-chat) so we check for that.
             const isBotMessage = ASSISTANT_HAS_OWN_NUMBER
               ? fromMe
-              : content.startsWith(`${ASSISTANT_NAME}:`);
+              : finalContent.startsWith(`${ASSISTANT_NAME}:`);
 
             this.opts.onMessage(chatJid, {
               id: msg.key.id || '',
               chat_jid: chatJid,
               sender,
               sender_name: senderName,
-              content,
+              content: finalContent,
               timestamp,
               is_from_me: fromMe,
               is_bot_message: isBotMessage,
