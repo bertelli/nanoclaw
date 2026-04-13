@@ -32,8 +32,10 @@ import {
 } from '../config.js';
 import {
   getLastGroupSync,
+  getLatestMessage,
   getMessageContentById,
   setLastGroupSync,
+  storeReaction,
   updateChatName,
 } from '../db.js';
 import { isImageMessage, processImage } from '../image.js';
@@ -383,6 +385,46 @@ export class WhatsAppChannel implements Channel {
             { err, remoteJid: msg.key?.remoteJid },
             'Error processing incoming message',
           );
+        }
+      }
+    });
+
+    // Listen for message reactions
+    this.sock.ev.on('messages.reaction', async (reactions) => {
+      for (const { key, reaction } of reactions) {
+        try {
+          const messageId = key.id;
+          if (!messageId) continue;
+          const rawChatJid = key.remoteJid;
+          if (!rawChatJid || rawChatJid === 'status@broadcast') continue;
+          const chatJid = await this.translateJid(rawChatJid);
+          const groups = this.opts.registeredGroups();
+          if (!groups[chatJid]) continue;
+          const reactorJid =
+            reaction.key?.participant || reaction.key?.remoteJid || '';
+          const emoji = reaction.text || '';
+          const timestamp = reaction.senderTimestampMs
+            ? new Date(Number(reaction.senderTimestampMs)).toISOString()
+            : new Date().toISOString();
+          storeReaction({
+            message_id: messageId,
+            message_chat_jid: chatJid,
+            reactor_jid: reactorJid,
+            reactor_name: reactorJid.split('@')[0],
+            emoji,
+            timestamp,
+          });
+          logger.info(
+            {
+              chatJid,
+              messageId: messageId.slice(0, 10) + '...',
+              reactor: reactorJid.split('@')[0],
+              emoji: emoji || '(removed)',
+            },
+            emoji ? 'Reaction added' : 'Reaction removed',
+          );
+        } catch (err) {
+          logger.error({ err }, 'Failed to process reaction');
         }
       }
     });
