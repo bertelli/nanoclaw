@@ -35,7 +35,17 @@ vi.mock('../db.js', () => ({
 // Mock image module
 vi.mock('../image.js', () => ({
   isImageMessage: vi.fn().mockReturnValue(false),
-  processImage: vi.fn().mockResolvedValue({ content: '[Image: attachments/test.jpg]', relativePath: 'attachments/test.jpg' }),
+  processImage: vi
+    .fn()
+    .mockResolvedValue({
+      content: '[Image: attachments/test.jpg]',
+      relativePath: 'attachments/test.jpg',
+    }),
+}));
+
+vi.mock('../transcription.js', () => ({
+  isVoiceMessage: vi.fn().mockReturnValue(false),
+  transcribeAudioMessage: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock fs
